@@ -36,9 +36,9 @@ class UserTest extends TestCase
     public function test_user_has_fillable_attributes(): void
     {
         $user = new User();
-        
+
         $fillable = $user->getFillable();
-        
+
         $this->assertContains('name', $fillable);
         $this->assertContains('email', $fillable);
         $this->assertContains('password', $fillable);
@@ -47,9 +47,9 @@ class UserTest extends TestCase
     public function test_user_has_hidden_attributes(): void
     {
         $user = new User();
-        
+
         $hidden = $user->getHidden();
-        
+
         $this->assertContains('password', $hidden);
         $this->assertContains('remember_token', $hidden);
     }
@@ -59,7 +59,7 @@ class UserTest extends TestCase
         User::factory()->create(['email' => 'test@example.com']);
 
         $this->expectException(\Illuminate\Database\QueryException::class);
-        
+
         User::factory()->create(['email' => 'test@example.com']);
     }
 

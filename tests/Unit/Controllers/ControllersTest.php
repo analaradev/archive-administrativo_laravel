@@ -27,7 +27,7 @@ class ControllersTest extends TestCase
     public function test_auth_controller_has_required_methods(): void
     {
         $controller = new AuthController();
-        
+
         $this->assertTrue(method_exists($controller, 'showLoginForm'));
         $this->assertTrue(method_exists($controller, 'login'));
         $this->assertTrue(method_exists($controller, 'showRegistrationForm'));
@@ -38,7 +38,7 @@ class ControllersTest extends TestCase
     public function test_dashboard_controller_has_required_methods(): void
     {
         $controller = new DashboardController();
-        
+
         $this->assertTrue(method_exists($controller, 'index'));
     }
 
@@ -46,12 +46,12 @@ class ControllersTest extends TestCase
     {
         /** @var User $user */
         $user = User::factory()->create();
-        
+
         Auth::login($user);
-        
+
         $controller = new DashboardController();
         $response = $controller->index();
-        
+
         $this->assertInstanceOf(\Illuminate\View\View::class, $response);
     }
 
@@ -59,7 +59,7 @@ class ControllersTest extends TestCase
     {
         $controller = new AuthController();
         $response = $controller->showLoginForm();
-        
+
         $this->assertInstanceOf(\Illuminate\View\View::class, $response);
     }
 
@@ -67,7 +67,7 @@ class ControllersTest extends TestCase
     {
         $controller = new AuthController();
         $response = $controller->showRegistrationForm();
-        
+
         $this->assertInstanceOf(\Illuminate\View\View::class, $response);
     }
 }
