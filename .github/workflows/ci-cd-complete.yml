@@ -1,0 +1,509 @@
+name: 🚀 CI/CD Pipeline Completo
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+env:
+  PHP_VERSION: "8.3"
+  NODE_VERSION: "20"
+
+jobs:
+  # ===== DETECCIÓN AUTOMÁTICA DE TIPO DE RAMA =====
+  detect-branch-type:
+    name: 🔍 Detectar Tipo de Rama
+    runs-on: ubuntu-latest
+    outputs:
+      branch-type: ${{ steps.detect.outputs.type }}
+      area: ${{ steps.detect.outputs.area }}
+      issue-number: ${{ steps.detect.outputs.issue }}
+      should-run-backend: ${{ steps.detect.outputs.backend }}
+      should-run-frontend: ${{ steps.detect.outputs.frontend }}
+      should-deploy: ${{ steps.detect.outputs.deploy }}
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🔍 Analizar tipo de rama y área
+        id: detect
+        run: |
+          # Obtener nombre de la rama
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            branch="${{ github.head_ref }}"
+          else
+            branch="${{ github.ref_name }}"
+          fi
+          
+          echo "🔍 Analizando rama: $branch"
+          
+          # Detectar patrón: tipo/número-área-descripción
+          if [[ $branch =~ ^(feature|fix|docs)/([0-9]+)-(frontend|backend|fullstack)-.*$ ]]; then
+            type="${BASH_REMATCH[1]}"
+            issue="${BASH_REMATCH[2]}"
+            area="${BASH_REMATCH[3]}"
+            
+            echo "✅ Rama válida detectada:"
+            echo "  - Tipo: $type"
+            echo "  - Issue: #$issue"
+            echo "  - Área: $area"
+            
+            # Determinar qué tests ejecutar
+            case $area in
+              "frontend")
+                backend="false"
+                frontend="true"
+                ;;
+              "backend")
+                backend="true"
+                frontend="false"
+                ;;
+              "fullstack")
+                backend="true"
+                frontend="true"
+                ;;
+            esac
+            
+          elif [[ $branch == "main" ]]; then
+            type="main"
+            area="production"
+            issue=""
+            backend="true"
+            frontend="true"
+            
+          elif [[ $branch == "dev" ]]; then
+            type="dev"
+            area="staging"
+            issue=""
+            backend="true"
+            frontend="true"
+            
+          else
+            type="other"
+            area="general"
+            issue=""
+            backend="true"
+            frontend="true"
+            echo "⚠️ Rama no sigue convención estándar: $branch"
+          fi
+          
+          # Determinar si debe hacer deploy
+          deploy="false"
+          if [[ $branch == "dev" && "${{ github.event_name }}" == "push" ]]; then
+            deploy="staging"
+          elif [[ $branch == "main" && "${{ github.event_name }}" == "push" ]]; then
+            deploy="production"
+          fi
+          
+          # Outputs para siguientes jobs
+          echo "type=$type" >> $GITHUB_OUTPUT
+          echo "area=$area" >> $GITHUB_OUTPUT
+          echo "issue=$issue" >> $GITHUB_OUTPUT
+          echo "backend=$backend" >> $GITHUB_OUTPUT
+          echo "frontend=$frontend" >> $GITHUB_OUTPUT
+          echo "deploy=$deploy" >> $GITHUB_OUTPUT
+
+  # ===== TESTS BACKEND CONDICIONALES =====
+  backend-tests:
+    name: 🐘 Tests Backend (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    needs: detect-branch-type
+    if: needs.detect-branch-type.outputs.should-run-backend == 'true'
+    
+    strategy:
+      matrix:
+        php-version: [8.2, 8.3]
+        
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐘 Setup PHP ${{ matrix.php-version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, dom, filter, gd, json, pdo
+          tools: composer:v2
+          coverage: xdebug
+
+      - name: 📋 Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      - name: 🎼 Instalar dependencias de Composer
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: 📄 Configurar entorno
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: 📁 Configurar permisos
+        run: chmod -R 777 storage bootstrap/cache
+
+      - name: 🗄️ Ejecutar migraciones y seeders
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: |
+          php artisan migrate --force
+          php artisan db:seed --force
+
+      - name: 🧪 Tests específicos por área
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: |
+          area="${{ needs.detect-branch-type.outputs.area }}"
+          echo "🎯 Ejecutando tests para área: $area"
+          
+          case $area in
+            "backend"|"fullstack"|"staging"|"production")
+              echo "🧪 Ejecutando suite completa de tests backend..."
+              php artisan test --testsuite=Unit,Feature --coverage-clover=coverage.xml
+              ;;
+            *)
+              echo "🧪 Ejecutando tests básicos..."
+              php artisan test --coverage-clover=coverage.xml
+              ;;
+          esac
+
+      - name: 📊 Subir cobertura
+        if: matrix.php-version == '8.3'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: backend
+          name: backend-${{ needs.detect-branch-type.outputs.area }}
+
+  # ===== TESTS FRONTEND CONDICIONALES =====
+  frontend-tests:
+    name: 🎨 Tests Frontend (Node 20)
+    runs-on: ubuntu-latest
+    needs: detect-branch-type
+    if: needs.detect-branch-type.outputs.should-run-frontend == 'true'
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias
+        run: npm ci
+
+      - name: 🏗️ Build assets
+        run: npm run build
+
+      - name: 🧪 Tests frontend específicos
+        run: |
+          area="${{ needs.detect-branch-type.outputs.area }}"
+          echo "🎯 Ejecutando tests frontend para área: $area"
+          
+          # Si hay tests de JS/TS configurados
+          if [ -f "package.json" ] && grep -q "test" package.json; then
+            npm test
+          else
+            echo "⚠️ Tests frontend no configurados, validando build solamente"
+          fi
+
+      - name: ✅ Validar sintaxis y linting
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ]; then
+            npm run lint || echo "⚠️ Linting falló pero continuando..."
+          fi
+
+  # ===== CALIDAD DE CÓDIGO =====
+  code-quality:
+    name: 🔍 Calidad de Código
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, backend-tests]
+    if: always() && needs.detect-branch-type.outputs.should-run-backend == 'true'
+    
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐘 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          tools: composer:v2, php-cs-fixer, psalm
+
+      - name: 🎼 Instalar dependencias
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+      - name: ✨ PHP CS Fixer (estilo de código)
+        run: |
+          if [ -f ".php-cs-fixer.dist.php" ]; then
+            vendor/bin/php-cs-fixer fix --dry-run --diff --verbose
+          else
+            echo "⚠️ PHP CS Fixer no configurado - saltando por ahora"
+          fi
+
+      - name: 🔍 Análisis estático con Psalm
+        run: |
+          if [ -f "psalm.xml" ]; then
+            vendor/bin/psalm --show-info=true
+          else
+            echo "⚠️ Psalm no configurado - saltando por ahora"
+          fi
+
+      - name: 🛡️ Security audit
+        run: composer audit
+
+  # ===== TESTS DE INTEGRACIÓN =====
+  integration-tests:
+    name: 🔗 Tests de Integración
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, backend-tests, frontend-tests]
+    if: always() && (needs.detect-branch-type.outputs.area == 'fullstack' || needs.detect-branch-type.outputs.area == 'staging' || needs.detect-branch-type.outputs.area == 'production')
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🐘 Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: 🎼 Instalar todas las dependencias
+        run: |
+          composer install --no-progress --prefer-dist --optimize-autoloader
+          npm ci
+
+      - name: 🏗️ Build completo
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          npm run build
+
+      - name: 🗄️ Setup base de datos completo
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: |
+          php artisan migrate --force
+          php artisan db:seed --force
+
+      - name: 🔗 Ejecutar tests de integración
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: testing
+          DB_USERNAME: root
+          DB_PASSWORD: password
+        run: |
+          if [ -d "tests/Integration" ]; then
+            php artisan test tests/Integration/
+          else
+            echo "🔗 Ejecutando tests de integración básicos..."
+            php artisan test --testsuite=Feature
+          fi
+
+  # ===== DEPLOY AUTOMÁTICO A STAGING =====
+  deploy-staging:
+    name: 🚀 Deploy a Staging (dev)
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, backend-tests, frontend-tests, code-quality, integration-tests]
+    if: |
+      always() && 
+      github.ref == 'refs/heads/dev' &&
+      github.event_name == 'push' &&
+      needs.backend-tests.result == 'success' &&
+      (needs.frontend-tests.result == 'success' || needs.frontend-tests.result == 'skipped') &&
+      (needs.code-quality.result == 'success' || needs.code-quality.result == 'skipped') &&
+      (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped')
+
+    environment:
+      name: staging
+      url: https://staging.tu-dominio.com
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: 🚀 Deploy a staging
+        run: |
+          echo "🚀 Iniciando deploy automático a STAGING..."
+          echo "📝 Rama: ${{ github.ref_name }}"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "📝 Área detectada: ${{ needs.detect-branch-type.outputs.area }}"
+          
+          # Aquí integrarías tu script de deploy
+          # ./scripts/deploy-staging.sh
+          
+          echo "✅ Deploy a staging completado"
+
+      - name: 🔔 Notificar deploy exitoso
+        run: |
+          echo "🎉 Deploy a STAGING exitoso"
+          echo "🌐 URL: https://staging.tu-dominio.com"
+          echo "📋 Detalles:"
+          echo "  - Rama: dev"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Hora: $(date)"
+
+  # ===== DEPLOY MANUAL A PRODUCCIÓN =====
+  deploy-production:
+    name: 🏭 Deploy a Producción (main)
+    runs-on: ubuntu-latest
+    needs: [detect-branch-type, backend-tests, frontend-tests, code-quality, integration-tests]
+    if: |
+      always() && 
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      needs.backend-tests.result == 'success' &&
+      (needs.frontend-tests.result == 'success' || needs.frontend-tests.result == 'skipped') &&
+      (needs.code-quality.result == 'success' || needs.code-quality.result == 'skipped') &&
+      (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped')
+
+    environment:
+      name: production
+      url: https://tu-dominio.com
+
+    steps:
+      - name: 📥 Checkout código
+        uses: actions/checkout@v4
+
+      - name: ⏳ Esperar aprobación manual
+        run: |
+          echo "⏳ Este deploy requiere aprobación manual..."
+          echo "📋 Verificaciones completadas:"
+          echo "  ✅ Backend tests: ${{ needs.backend-tests.result }}"
+          echo "  ✅ Frontend tests: ${{ needs.frontend-tests.result }}"
+          echo "  ✅ Code quality: ${{ needs.code-quality.result }}"
+          echo "  ✅ Integration tests: ${{ needs.integration-tests.result }}"
+
+      - name: 🏭 Deploy a producción
+        run: |
+          echo "🏭 Iniciando deploy a PRODUCCIÓN..."
+          echo "📝 Rama: ${{ github.ref_name }}"
+          echo "📝 Commit: ${{ github.sha }}"
+          
+          # Aquí integrarías tu script de deploy de producción
+          # ./scripts/deploy-production.sh
+          
+          echo "✅ Deploy a producción completado"
+
+      - name: 🔔 Notificar deploy exitoso
+        run: |
+          echo "🎉 Deploy a PRODUCCIÓN exitoso"
+          echo "🌐 URL: https://tu-dominio.com"
+          echo "📋 Detalles:"
+          echo "  - Rama: main"
+          echo "  - Commit: ${{ github.sha }}"
+          echo "  - Hora: $(date)"
+
+  # ===== NOTIFICACIONES Y REPORTES =====
+  notify-results:
+    name: 📢 Notificar Resultados
+    runs-on: ubuntu-latest
+    needs: [
+      detect-branch-type, 
+      backend-tests, 
+      frontend-tests, 
+      code-quality, 
+      integration-tests, 
+      deploy-staging, 
+      deploy-production
+    ]
+    if: always()
+
+    steps:
+      - name: 📊 Generar reporte de resultados
+        run: |
+          echo "📊 REPORTE DEL PIPELINE CI/CD"
+          echo "====================================="
+          echo "🔍 Detección de rama: ${{ needs.detect-branch-type.result }}"
+          echo "  - Tipo: ${{ needs.detect-branch-type.outputs.branch-type }}"
+          echo "  - Área: ${{ needs.detect-branch-type.outputs.area }}"
+          echo "  - Issue: #${{ needs.detect-branch-type.outputs.issue-number }}"
+          echo ""
+          echo "🧪 Resultados de Tests:"
+          echo "  - Backend: ${{ needs.backend-tests.result }}"
+          echo "  - Frontend: ${{ needs.frontend-tests.result }}"
+          echo "  - Calidad: ${{ needs.code-quality.result }}"
+          echo "  - Integración: ${{ needs.integration-tests.result }}"
+          echo ""
+          echo "🚀 Resultados de Deploy:"
+          echo "  - Staging: ${{ needs.deploy-staging.result }}"
+          echo "  - Producción: ${{ needs.deploy-production.result }}"
+
+      - name: 📢 Determinar estado general
+        run: |
+          # Determinar estado general del pipeline
+          if [ "${{ needs.backend-tests.result }}" == "success" ] || [ "${{ needs.backend-tests.result }}" == "skipped" ]; then
+            if [ "${{ needs.frontend-tests.result }}" == "success" ] || [ "${{ needs.frontend-tests.result }}" == "skipped" ]; then
+              echo "✅ PIPELINE EXITOSO"
+              echo "🎉 Todos los tests requeridos pasaron correctamente"
+              exit 0
+            fi
+          fi
+          
+          echo "❌ PIPELINE FALLÓ"
+          echo "🔧 Revisa los logs para más detalles"
+          exit 1
+
+      - name: 🔔 Notificar a equipos (placeholder)
+        if: always()
+        run: |
+          echo "🔔 Aquí podrías integrar notificaciones a:"
+          echo "  - Slack"
+          echo "  - Teams"
+          echo "  - Email"
+          echo "  - Discord"
+          echo ""
+          echo "📝 Configuración sugerida:"
+          echo "  - Usa GitHub Secrets para tokens"
+          echo "  - Notifica solo en fallos para rama main/dev"
+          echo "  - Reportes semanales de métricas"

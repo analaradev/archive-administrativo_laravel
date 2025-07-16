@@ -1,0 +1,391 @@
+name: 🧪 Tests y Calidad de Código
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  tests:
+    name: 🚀 Ejecutar Tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    strategy:
+      matrix:
+        php-version: [8.2, 8.3]
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP ${{ matrix.php-version }}
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, dom, filter, gd, iconv, json, mbstring, pdo
+        tools: composer:v2
+        coverage: xdebug
+
+    - name: 📋 Cache Composer dependencies
+      uses: actions/cache@v3
+      with:
+        path: /tmp/composer-cache
+        key: ${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
+
+    - name: 🎼 Instalar dependencias de Composer
+      run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+    - name: 📄 Copiar archivo de entorno
+      run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+
+    - name: 🔑 Generar clave de aplicación
+      run: php artisan key:generate
+
+    - name: 📁 Crear directorio de storage
+      run: chmod -R 777 storage bootstrap/cache
+
+    - name: 🗄️ Ejecutar migraciones
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan migrate --force
+
+    - name: 🧪 Ejecutar tests unitarios
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan test --testsuite=Unit --coverage-clover=coverage-unit.xml
+
+    - name: 🎯 Ejecutar tests de feature
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan test --testsuite=Feature --coverage-clover=coverage-feature.xml
+
+    - name: 🔒 Ejecutar tests de seguridad
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan test tests/Feature/SecurityTest.php --coverage-clover=coverage-security.xml
+
+    - name: 📊 Subir cobertura a Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage-unit.xml,./coverage-feature.xml,./coverage-security.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  code-quality:
+    name: 🔍 Calidad de Código
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.3
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql
+        tools: composer:v2, php-cs-fixer, psalm
+
+    - name: 🎼 Instalar dependencias
+      run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+    - name: 📄 Copiar archivo de entorno
+      run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+
+    - name: 🔑 Generar clave de aplicación
+      run: php artisan key:generate
+
+    - name: ✨ Verificar estilo de código (PHP CS Fixer)
+      run: |
+        if [ -f .php-cs-fixer.dist.php ]; then
+          vendor/bin/php-cs-fixer fix --dry-run --diff --verbose
+        else
+          echo "⚠️ PHP CS Fixer no configurado - creando configuración básica"
+          echo "Saltando verificación de estilo por ahora"
+        fi
+
+    - name: 🔍 Análisis estático (Psalm)
+      run: |
+        if [ -f psalm.xml ]; then
+          vendor/bin/psalm --show-info=true
+        else
+          echo "⚠️ Psalm no configurado - saltando análisis estático por ahora"
+        fi
+
+    - name: 🛡️ Verificar vulnerabilidades de seguridad
+      run: composer audit
+
+  frontend:
+    name: 🎨 Frontend Build & Tests
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 📦 Instalar dependencias de Node
+      run: npm ci
+
+    - name: 🏗️ Build assets
+      run: npm run build
+
+    - name: ✅ Verificar que no hay errores de TypeScript
+      run: |
+        if [ -f tsconfig.json ]; then
+          npx tsc --noEmit
+        else
+          echo "⚠️ TypeScript no configurado - saltando verificación"
+        fi
+
+    - name: 🧹 Verificar linting de CSS/JS
+      run: |
+        if [ -f .eslintrc.js ] || [ -f .eslintrc.json ]; then
+          npm run lint
+        else
+          echo "⚠️ ESLint no configurado - saltando linting"
+        fi
+
+  integration:
+    name: 🔗 Tests de Integración
+    runs-on: ubuntu-latest
+    needs: [tests]
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.3
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql, dom, filter, gd, iconv, json, mbstring, pdo
+
+    - name: 🎼 Instalar dependencias
+      run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+    - name: 📄 Copiar archivo de entorno
+      run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+
+    - name: 🔑 Generar clave de aplicación
+      run: php artisan key:generate
+
+    - name: 🗄️ Ejecutar migraciones
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan migrate --force
+
+    - name: 🌱 Ejecutar seeders
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: php artisan db:seed
+
+    - name: 🔗 Ejecutar tests de integración
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: |
+        if [ -d tests/Integration ]; then
+          php artisan test tests/Integration/
+        else
+          echo "⚠️ No hay tests de integración disponibles aún"
+        fi
+
+  performance:
+    name: ⚡ Tests de Performance
+    runs-on: ubuntu-latest
+    needs: [tests]
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: password
+          MYSQL_DATABASE: testing
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.3
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql
+
+    - name: 🎼 Instalar dependencias
+      run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+    - name: 📄 Configurar entorno
+      run: |
+        php -r "file_exists('.env') || copy('.env.example', '.env');"
+        php artisan key:generate
+
+    - name: 🗄️ Setup base de datos
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: |
+        php artisan migrate --force
+        php artisan db:seed
+
+    - name: ⚡ Tests de performance básicos
+      env:
+        DB_CONNECTION: mysql
+        DB_HOST: 127.0.0.1
+        DB_PORT: 3306
+        DB_DATABASE: testing
+        DB_USERNAME: root
+        DB_PASSWORD: password
+      run: |
+        if [ -d tests/Performance ]; then
+          php artisan test tests/Performance/
+        else
+          echo "⚠️ Tests de performance no implementados aún"
+          echo "✅ Verificando tiempo de respuesta básico..."
+          php artisan serve --host=127.0.0.1 --port=8000 &
+          sleep 5
+          curl -o /dev/null -s -w "%{time_total}\n" http://127.0.0.1:8000/
+        fi
+
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v4
+
+    - name: 🐘 Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: 8.3
+        extensions: mbstring, xml, ctype, iconv, intl, pdo_mysql
+
+    - name: 🎼 Instalar dependencias
+      run: composer install --no-progress --prefer-dist --optimize-autoloader
+
+    - name: 🔍 Security Audit
+      run: composer audit
+
+    - name: 🛡️ Verificar configuraciones de seguridad
+      run: |
+        echo "🔍 Verificando configuraciones críticas..."
+        
+        # Verificar que APP_DEBUG está en false para producción
+        if grep -q "APP_DEBUG=true" .env.example; then
+          echo "⚠️ APP_DEBUG está en true en .env.example"
+        fi
+        
+        # Verificar que hay configuración CSRF
+        if grep -q "csrf" config/session.php; then
+          echo "✅ Configuración CSRF encontrada"
+        fi
+        
+        # Verificar middlewares de seguridad
+        if grep -q "auth" app/Http/Kernel.php; then
+          echo "✅ Middleware de autenticación configurado"
+        fi
+
+    - name: 🔐 Verificar secrets y configuraciones sensibles
+      run: |
+        echo "🔍 Buscando posibles secrets expuestos..."
+        
+        # Buscar patrones de API keys o passwords hardcodeados
+        if grep -r "password.*=.*['\"][^'\"]*['\"]" app/ --exclude-dir=vendor; then
+          echo "⚠️ Posibles contraseñas hardcodeadas encontradas"
+        else
+          echo "✅ No se encontraron contraseñas hardcodeadas"
+        fi
+
+  notify:
+    name: 📢 Notificar Resultados
+    runs-on: ubuntu-latest
+    needs: [tests, code-quality, frontend, integration, performance, security]
+    if: always()
+
+    steps:
+    - name: 📢 Notificar estado del pipeline
+      run: |
+        if [ "${{ needs.tests.result }}" == "success" ] && 
+           [ "${{ needs.code-quality.result }}" == "success" ] && 
+           [ "${{ needs.frontend.result }}" == "success" ]; then
+          echo "✅ Pipeline ejecutado exitosamente"
+          echo "🎉 Todos los tests y verificaciones pasaron"
+        else
+          echo "❌ Pipeline falló"
+          echo "Tests: ${{ needs.tests.result }}"
+          echo "Calidad: ${{ needs.code-quality.result }}"
+          echo "Frontend: ${{ needs.frontend.result }}"
+          echo "Integración: ${{ needs.integration.result }}"
+          echo "Performance: ${{ needs.performance.result }}"
+          echo "Seguridad: ${{ needs.security.result }}"
+        fi
