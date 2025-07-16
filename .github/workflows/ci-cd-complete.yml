@@ -7,7 +7,7 @@ on:
     branches: [main, dev]
 
 env:
-  PHP_VERSION: "8.3"
+  PHP_VERSION: "8.4"
   NODE_VERSION: "20"
 
 jobs:
@@ -114,7 +114,7 @@ jobs:
     
     strategy:
       matrix:
-        php-version: [8.2, 8.3]
+        php-version: [8.3, 8.4]
         
     services:
       mysql:
@@ -192,7 +192,7 @@ jobs:
           esac
 
       - name: 📊 Subir cobertura
-        if: matrix.php-version == '8.3'
+        if: matrix.php-version == '8.4'
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
@@ -254,7 +254,7 @@ jobs:
       - name: 🐘 Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.4"
           tools: composer:v2, php-cs-fixer, psalm
 
       - name: 🎼 Instalar dependencias
@@ -303,7 +303,7 @@ jobs:
       - name: 🐘 Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.4"
 
       - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
