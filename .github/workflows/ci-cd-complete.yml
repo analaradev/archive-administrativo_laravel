@@ -364,9 +364,8 @@ jobs:
       (needs.code-quality.result == 'success' || needs.code-quality.result == 'skipped') &&
       (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped')
 
-    environment:
-      name: staging
-      url: https://staging.tu-dominio.com
+    # ✅ Environment creado en GitHub
+    environment: staging
 
     steps:
       - name: 📥 Checkout código
@@ -407,9 +406,8 @@ jobs:
       (needs.code-quality.result == 'success' || needs.code-quality.result == 'skipped') &&
       (needs.integration-tests.result == 'success' || needs.integration-tests.result == 'skipped')
 
-    environment:
-      name: production
-      url: https://tu-dominio.com
+    # ✅ Environment creado en GitHub
+    environment: production
 
     steps:
       - name: 📥 Checkout código
