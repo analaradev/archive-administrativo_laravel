@@ -1,32 +1,36 @@
 # Administrativo Laravel
 
-Repositorio conservado como proyecto de referencia para un sistema administrativo desarrollado con Laravel.
+<div align="center">
 
-## Categoria
+![Archive](https://img.shields.io/badge/Tipo-Archivado-6b7280?style=for-the-badge)
+![Laravel](https://img.shields.io/badge/Laravel-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)
+![Admin](https://img.shields.io/badge/Tema-Administrativo-0ea5e9?style=for-the-badge)
 
-`archive-` - proyecto guardado como historial, referencia tecnica o evidencia de aprendizaje.
+**Version archivada de sistema administrativo desarrollado con Laravel.**
 
-## Objetivo
+</div>
 
-Documentar una implementacion administrativa con autenticacion, dashboard y estructura base de Laravel, manteniendola como referencia para futuros proyectos o comparacion tecnica.
+---
+
+## Contexto
+
+Repositorio conservado como referencia tecnica para un sistema administrativo con autenticacion, dashboard y estructura base de Laravel.
+
+## Proposito
+
+- Documentar una implementacion administrativa anterior.
+- Conservar una base de aprendizaje Laravel.
+- Mantener referencia para futuros proyectos.
+- Comparar decisiones tecnicas.
 
 ## Tecnologias
 
-- Laravel
-- PHP
-- MariaDB o MySQL
-- Blade
-- Vite
+![Laravel](https://img.shields.io/badge/Laravel-dc2626?style=flat-square&logo=laravel&logoColor=white)
+![PHP](https://img.shields.io/badge/PHP-7c3aed?style=flat-square&logo=php&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-2563eb?style=flat-square&logo=mysql&logoColor=white)
+![Admin](https://img.shields.io/badge/Admin-16a34a?style=flat-square)
 
-## Funcionalidades principales
-
-- Autenticacion de usuarios
-- Dashboard administrativo
-- Rutas protegidas
-- Validacion de formularios
-- Estructura base para modulos administrativos
-
-## Uso local
+## Uso Local
 
 ```bash
 composer install
@@ -40,8 +44,4 @@ php artisan serve
 
 ## Estado
 
-Proyecto archivado por clasificacion. Puede contener una implementacion anterior o codigo usado como base de aprendizaje.
-
-## Nota
-
-Antes de reutilizarlo en produccion, revisar configuracion, credenciales, dependencias y datos de prueba.
+Proyecto archivado. Revisar configuracion, credenciales y datos de prueba antes de reutilizar.
